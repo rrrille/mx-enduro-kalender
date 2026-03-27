@@ -18,6 +18,8 @@ from scrapers.fmck_scraper import FmckScraper
 from scrapers.botkyrka_scraper import BotkyrkaScraper
 from scrapers.nynashamn_scraper import NynashamnScraper
 from scrapers.haninge_scraper import HaningeScraper
+from scrapers.svenskalag_scraper import SvenskaLagScraper
+from scrapers.amf_scraper import AmfScraper
 
 logging.basicConfig(
     level=logging.INFO,
@@ -77,6 +79,24 @@ def run_scrapers() -> list[dict]:
         logger.info(f"Haninge: {len(events)} events")
     except Exception as e:
         logger.error(f"Haninge scraper misslyckades: {e}")
+
+    # Åsätra MK (SvenskaLag)
+    try:
+        scraper = SvenskaLagScraper("asatra_mk", CLUBS["asatra_mk"], slug="asatramk")
+        events = scraper.scrape()
+        all_events.extend(e.to_dict() for e in events)
+        logger.info(f"Åsätra: {len(events)} events")
+    except Exception as e:
+        logger.error(f"Åsätra scraper misslyckades: {e}")
+
+    # AMF Södertälje (WordPress RSS)
+    try:
+        scraper = AmfScraper("amf_sodertalje", CLUBS["amf_sodertalje"])
+        events = scraper.scrape()
+        all_events.extend(e.to_dict() for e in events)
+        logger.info(f"AMF: {len(events)} events")
+    except Exception as e:
+        logger.error(f"AMF scraper misslyckades: {e}")
 
     return all_events
 

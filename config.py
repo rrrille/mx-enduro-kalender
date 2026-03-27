@@ -4,8 +4,10 @@
 CLUBS = {
     "asatra_mk": {
         "name": "Åsätra MK",
-        "source": "rcmc",
+        "source": "svenskalag",
+        "svenskalag_slug": "asatramk",
         "location": {"lat": 59.48, "lng": 17.85},
+        "location_name": "Åsätra, Åkersberga",
         "discipline": ["enduro"],
     },
     "arlanda_mc": {
