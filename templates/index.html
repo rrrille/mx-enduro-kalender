@@ -6,6 +6,8 @@
     <title>MX & Enduro Tr&auml;ningskalender Stockholm</title>
     <meta name="description" content="Samlad kalender f&ouml;r motocross och endurotr&auml;ning i Stockholmsomr&aring;det. &Ouml;ppettider fr&aring;n 10 klubbar.">
     <link rel="alternate" type="text/calendar" href="calendar.ics" title="iCal-prenumeration">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         :root {
             --bg: #0f1114;
@@ -232,19 +234,65 @@
             border-color: var(--accent);
         }
 
-        /* Map view placeholder */
+        /* Map view */
         #map-view {
             display: none;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            height: 550px;
+            overflow: hidden;
+        }
+        #map-view.active { display: block; }
+        #map { height: 100%; width: 100%; }
+        .leaflet-popup-content-wrapper {
+            background: var(--surface) !important;
+            color: var(--text) !important;
+            border: 1px solid var(--border) !important;
+            border-radius: 8px !important;
+        }
+        .leaflet-popup-tip { background: var(--surface) !important; }
+        .leaflet-popup-content { font-size: 0.85rem; line-height: 1.5; }
+        .leaflet-popup-content h4 { color: var(--accent); margin-bottom: 4px; }
+        .leaflet-popup-content .popup-count { font-weight: 600; }
+
+        /* Track info section */
+        .track-info {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: var(--radius);
-            height: 500px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+        }
+        .track-info summary {
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: var(--text);
+            list-style: none;
             display: flex;
             align-items: center;
-            justify-content: center;
-            color: var(--text-muted);
+            gap: 8px;
         }
-        #map-view.active { display: flex; }
+        .track-info summary::before { content: "&#x2139;&#xFE0F;"; }
+        .track-info summary::marker { display: none; }
+        .track-info[open] summary { margin-bottom: 12px; }
+        .track-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 10px;
+        }
+        .track-card {
+            background: var(--surface2);
+            border-radius: 6px;
+            padding: 10px 14px;
+            border-left: 3px solid;
+        }
+        .track-card h4 { font-size: 0.85rem; margin-bottom: 2px; }
+        .track-card p { font-size: 0.78rem; color: var(--text-muted); margin: 0; }
+        .track-green { border-color: #22c55e; }
+        .track-blue { border-color: #3b82f6; }
+        .track-orange { border-color: #f97316; }
+        .track-red { border-color: #ef4444; }
 
         /* Empty state */
         .empty-state {
@@ -327,6 +375,33 @@
             <span class="stat-badge" id="visible-count">Visar {{ total_events }} events</span>
         </div>
 
+        <!-- Sp&aring;rinfo -->
+        <details class="track-info">
+            <summary>Vad betyder sp&aring;rf&auml;rgerna?</summary>
+            <div class="track-grid">
+                <div class="track-card track-green">
+                    <h4>&#x1F7E2; Gr&ouml;nt sp&aring;r &mdash; Nyb&ouml;rjare</h4>
+                    <p>L&auml;ttaste sp&aring;ret. Breda stigar, l&aring;g fart, inga sv&aring;ra hinder. Perfekt f&ouml;r nya f&ouml;rare och barn.</p>
+                </div>
+                <div class="track-card track-blue">
+                    <h4>&#x1F535; Bl&aring;tt sp&aring;r &mdash; Mellan</h4>
+                    <p>Mellansvårt. Smalare stigar, kuperad terr&auml;ng, n&aring;gra tekniska partier. F&ouml;r f&ouml;rare med grundl&auml;ggande erfarenhet.</p>
+                </div>
+                <div class="track-card track-orange">
+                    <h4>&#x1F7E0; Orange sp&aring;r &mdash; Avancerat</h4>
+                    <p>Tekniskt kr&auml;vande. Finns i Kort och L&aring;ngt. Branta backar, stenar, r&ouml;tter. F&ouml;r erfarna f&ouml;rare.</p>
+                </div>
+                <div class="track-card track-red">
+                    <h4>&#x1F4CD; Omr&aring;de 4 &amp; 5</h4>
+                    <p>Extra &ouml;vningsomr&aring;den vid Kungs&auml;ngen/Myttinge. Anv&auml;nds vid st&ouml;rre tr&auml;ningar och l&auml;ger.</p>
+                </div>
+            </div>
+            <p style="margin-top: 10px; font-size: 0.78rem; color: var(--text-muted);">
+                Sp&aring;ren &auml;r pilade med f&auml;rgmarkeringar p&aring; tr&auml;d. &Ouml;vningsledare finns p&aring; plats.
+                Obligatorisk utrustning: hj&auml;lm, st&ouml;vlar, skyddsglasögon, handskar, skyddskl&auml;der.
+            </p>
+        </details>
+
         <!-- Listvy -->
         <div id="list-view">
             {% if events_by_date %}
@@ -387,7 +462,7 @@
 
         <!-- Kartvy -->
         <div id="map-view">
-            <p>&#x1F5FA;&#xFE0F; Kartvy kommer snart &mdash; kr&auml;ver Leaflet.js</p>
+            <div id="map"></div>
         </div>
     </main>
 
@@ -401,6 +476,16 @@
     </footer>
 
     <script>
+        // Klubbdata för karta
+        const clubLocations = {
+            {% for cid, c in club_configs.items() %}
+            "{{ c.name }}": { lat: {{ c.location.lat }}, lng: {{ c.location.lng }}, id: "{{ cid }}", disciplines: {{ c.discipline | tojson }} },
+            {% endfor %}
+        };
+
+        // Events-data för karta
+        const allEvents = {{ events | tojson }};
+
         // Filtrering
         const filterClub = document.getElementById('filter-club');
         const filterDiscipline = document.getElementById('filter-discipline');
@@ -422,7 +507,6 @@
                 if (visible) count++;
             });
 
-            // Dölj tomma daggrupper
             document.querySelectorAll('.day-group').forEach(group => {
                 const visibleCards = group.querySelectorAll('.event-card:not([style*="display: none"])');
                 group.style.display = visibleCards.length ? '' : 'none';
@@ -435,11 +519,91 @@
         filterDiscipline.addEventListener('change', applyFilters);
         filterType.addEventListener('change', applyFilters);
 
-        // Vy-växling
+        // Karta
+        let map = null;
+        let mapInitialized = false;
+
+        function initMap() {
+            if (mapInitialized) return;
+            mapInitialized = true;
+
+            map = L.map('map', {
+                zoomControl: true,
+                attributionControl: true,
+            }).setView([59.35, 17.95], 10);
+
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+                maxZoom: 17,
+            }).addTo(map);
+
+            // Räkna events per klubb
+            const eventCounts = {};
+            allEvents.forEach(ev => {
+                eventCounts[ev.club] = (eventCounts[ev.club] || 0) + 1;
+            });
+
+            // Samla närmaste event per klubb
+            const nextEvent = {};
+            allEvents.forEach(ev => {
+                if (!nextEvent[ev.club] || ev.date < nextEvent[ev.club].date) {
+                    nextEvent[ev.club] = ev;
+                }
+            });
+
+            // Markers
+            Object.entries(clubLocations).forEach(([name, loc]) => {
+                const count = eventCounts[name] || 0;
+                const next = nextEvent[name];
+                const color = count > 0 ? '#f97316' : '#4b5563';
+                const radius = count > 0 ? Math.min(8 + count, 18) : 6;
+
+                const marker = L.circleMarker([loc.lat, loc.lng], {
+                    radius: radius,
+                    fillColor: color,
+                    color: '#fff',
+                    weight: 2,
+                    opacity: 0.9,
+                    fillOpacity: 0.85,
+                }).addTo(map);
+
+                let popupHtml = `<h4>${name}</h4>`;
+                popupHtml += `<div>Discipliner: ${loc.disciplines.join(', ')}</div>`;
+                if (count > 0) {
+                    popupHtml += `<div class="popup-count">${count} kommande pass</div>`;
+                    if (next) {
+                        popupHtml += `<div>N&auml;sta: ${next.date}`;
+                        if (next.start_time) popupHtml += ` kl ${next.start_time}`;
+                        popupHtml += `</div>`;
+                        popupHtml += `<div style="font-size:0.8em;color:#8b919e;">${next.title.substring(0, 60)}</div>`;
+                    }
+                } else {
+                    popupHtml += `<div style="color:#8b919e;">Inga kommande pass hittade</div>`;
+                }
+
+                marker.bindPopup(popupHtml, { maxWidth: 280 });
+            });
+        }
+
+        // Vy-v&auml;xling
         function setView(view) {
-            document.getElementById('list-view').style.display = view === 'list' ? '' : 'none';
+            const listEl = document.getElementById('list-view');
             const mapEl = document.getElementById('map-view');
-            mapEl.style.display = view === 'map' ? 'flex' : 'none';
+
+            if (view === 'list') {
+                listEl.style.display = '';
+                mapEl.style.display = 'none';
+                mapEl.classList.remove('active');
+            } else {
+                listEl.style.display = 'none';
+                mapEl.style.display = 'block';
+                mapEl.classList.add('active');
+                setTimeout(() => {
+                    initMap();
+                    if (map) map.invalidateSize();
+                }, 100);
+            }
+
             document.querySelectorAll('.view-toggle button').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
         }

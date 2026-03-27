@@ -15,6 +15,9 @@ from config import CLUBS, SMHI_FORECAST_URL, OUTPUT_DIR, DATA_FILE
 from scrapers.base import TrainingEvent
 from scrapers.rcmc_scraper import RcmcScraper
 from scrapers.fmck_scraper import FmckScraper
+from scrapers.botkyrka_scraper import BotkyrkaScraper
+from scrapers.nynashamn_scraper import NynashamnScraper
+from scrapers.haninge_scraper import HaningeScraper
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,6 +50,33 @@ def run_scrapers() -> list[dict]:
         logger.info(f"FMCK: {len(events)} events")
     except Exception as e:
         logger.error(f"FMCK scraper misslyckades: {e}")
+
+    # Botkyrka MK
+    try:
+        scraper = BotkyrkaScraper("botkyrka_mk", CLUBS["botkyrka_mk"])
+        events = scraper.scrape()
+        all_events.extend(e.to_dict() for e in events)
+        logger.info(f"Botkyrka: {len(events)} events")
+    except Exception as e:
+        logger.error(f"Botkyrka scraper misslyckades: {e}")
+
+    # Nynäshamns MCK
+    try:
+        scraper = NynashamnScraper("nynashamns_mck", CLUBS["nynashamns_mck"])
+        events = scraper.scrape()
+        all_events.extend(e.to_dict() for e in events)
+        logger.info(f"Nynäshamn: {len(events)} events")
+    except Exception as e:
+        logger.error(f"Nynäshamn scraper misslyckades: {e}")
+
+    # Haninge MK
+    try:
+        scraper = HaningeScraper("haninge_mk", CLUBS["haninge_mk"])
+        events = scraper.scrape()
+        all_events.extend(e.to_dict() for e in events)
+        logger.info(f"Haninge: {len(events)} events")
+    except Exception as e:
+        logger.error(f"Haninge scraper misslyckades: {e}")
 
     return all_events
 
@@ -201,6 +231,22 @@ def main():
     # 1. Skrapa events
     events = run_scrapers()
     logger.info(f"Totalt {len(events)} events skrapade")
+
+    # 1b. Dedup: ta bort dubbletter baserat på klubb+datum+titel
+    seen = set()
+    unique_events = []
+    for ev in events:
+        key = (ev["club_id"], ev["date"], ev["title"][:50])
+        if key not in seen:
+            seen.add(key)
+            unique_events.append(ev)
+    logger.info(f"Efter dedup: {len(unique_events)} unika events (tog bort {len(events) - len(unique_events)} dubbletter)")
+    events = unique_events
+
+    # Filtrera bort gamla events (före idag)
+    today = datetime.now().strftime("%Y-%m-%d")
+    events = [e for e in events if e.get("date", "") >= today]
+    logger.info(f"Efter datumfilter: {len(events)} kommande events")
 
     # 2. Berika med väder
     events = enrich_with_weather(events)
