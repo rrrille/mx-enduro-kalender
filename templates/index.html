@@ -24,6 +24,20 @@
             --purple: #a855f7;
             --radius: 10px;
         }
+        [data-theme="light"] {
+            --bg: #f5f6f8;
+            --surface: #ffffff;
+            --surface2: #f0f1f3;
+            --border: #d4d8e0;
+            --text: #1a1d23;
+            --text-muted: #5f6672;
+            --accent: #ea580c;
+            --accent-hover: #f97316;
+            --green: #16a34a;
+            --blue: #2563eb;
+            --red: #dc2626;
+            --purple: #9333ea;
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -33,9 +47,23 @@
         }
         .container { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
 
+        /* Theme toggle */
+        .theme-toggle {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            line-height: 1;
+            transition: all 0.15s;
+        }
+        .theme-toggle:hover { border-color: var(--accent); }
+
         /* Header */
         header {
-            background: linear-gradient(135deg, #1a1d23 0%, #22262e 100%);
+            background: linear-gradient(135deg, var(--surface) 0%, var(--surface2) 100%);
             border-bottom: 1px solid var(--border);
             padding: 24px 0;
         }
@@ -431,7 +459,10 @@
 <body>
     <header>
         <div class="container">
-            <h1><span class="logo">&#x1F3CD;&#xFE0F;</span> MX & Enduro Tr&auml;ning Stockholm</h1>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h1><span class="logo">&#x1F3CD;&#xFE0F;</span> MX & Enduro Tr&auml;ning Stockholm</h1>
+                <button class="theme-toggle" onclick="toggleTheme()" title="V&auml;xla ljust/m&ouml;rkt l&auml;ge" id="theme-btn">&#x2600;&#xFE0F;</button>
+            </div>
             <div class="header-meta">
                 <span>{{ total_events }} tr&auml;ningstillf&auml;llen</span>
                 <span>Uppdaterad {{ generated_at }}</span>
@@ -736,6 +767,24 @@
                 marker.bindPopup(popupHtml, { maxWidth: 280 });
             });
         }
+
+        // Theme toggle
+        function toggleTheme() {
+            const html = document.documentElement;
+            const current = html.getAttribute('data-theme');
+            const next = current === 'light' ? 'dark' : 'light';
+            html.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            document.getElementById('theme-btn').textContent = next === 'light' ? '\u{1F319}' : '\u{2600}\u{FE0F}';
+        }
+        // Init theme from localStorage or system preference
+        (function() {
+            const saved = localStorage.getItem('theme');
+            if (saved) {
+                document.documentElement.setAttribute('data-theme', saved);
+                document.getElementById('theme-btn').textContent = saved === 'light' ? '\u{1F319}' : '\u{2600}\u{FE0F}';
+            }
+        })();
 
         // Tab-v&auml;xling
         function switchTab(tab) {
