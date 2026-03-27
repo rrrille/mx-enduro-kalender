@@ -1,11 +1,12 @@
 """Scraper för Nynäshamns MCK.
 
 Hemsida: nynashamnsmck.se
-WordPress-sajt med kalender. Öppettider: ons 17-20, lör/sön 10-14.
-Events postas även på Facebook.
+Använder Modern Events Calendar (MEC) plugin.
+Events finns som schema.org JSON-LD + renderad HTML med datum.
 """
 
 import re
+import json
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -13,158 +14,143 @@ from .base import BaseScraper, TrainingEvent
 
 
 class NynashamnScraper(BaseScraper):
-    """Scraper för Nynäshamns MCK."""
+    """Scraper för Nynäshamns MCK via MEC-kalender."""
 
     BASE_URL = "https://nynashamnsmck.se"
 
     def scrape(self) -> list[TrainingEvent]:
         events = []
 
-        # Strategi 1: WordPress REST API (The Events Calendar)
-        api_events = self._try_wp_api()
-        if api_events:
-            return api_events
+        # Strategi 1: Parsa schema.org JSON-LD från kalendersidan
+        events = self._scrape_calendar_jsonld()
 
-        # Strategi 2: Parsa kalendersidan
-        calendar_events = self._scrape_calendar_page()
-        if calendar_events:
-            return calendar_events
-
-        # Strategi 3: Parsa aktiviteter-sidan
-        activity_events = self._scrape_activities()
-        if activity_events:
-            return activity_events
+        # Strategi 2: Parsa event-HTML som fallback
+        if not events:
+            events = self._scrape_calendar_html()
 
         self.logger.info(f"Hittade {len(events)} events från Nynäshamns MCK")
         return events
 
-    def _try_wp_api(self) -> list[TrainingEvent]:
-        """Försök hämta via WordPress REST API."""
-        for endpoint in [
-            f"{self.BASE_URL}/wp-json/tribe/events/v1/events",
-            f"{self.BASE_URL}/wp-json/wp/v2/tribe_events",
-        ]:
-            try:
-                resp = requests.get(endpoint, timeout=10, params={
-                    "start_date": datetime.now().strftime("%Y-%m-%d"),
-                    "per_page": 50,
-                }, headers={"User-Agent": "MX-Enduro-Kalender/1.0"})
-                if resp.status_code == 200:
-                    data = resp.json()
-                    api_events = data.get("events", []) if isinstance(data, dict) else data
-                    events = []
-                    for ev in api_events:
-                        event = self._parse_wp_event(ev)
-                        if event:
-                            events.append(event)
-                    if events:
-                        self.logger.info(f"Nynäshamn WP API: {len(events)} events")
-                        return events
-            except Exception as e:
-                self.logger.debug(f"Nynäshamn API {endpoint}: {e}")
-        return []
-
-    def _parse_wp_event(self, ev: dict) -> TrainingEvent | None:
-        """Parsa WordPress-event."""
-        title = ev.get("title", "")
-        if isinstance(title, dict):
-            title = title.get("rendered", "")
-        start = ev.get("start_date", "") or ev.get("date", "")
-        if not start or not title:
-            return None
-
-        date_str = start[:10]
-        start_time = start[11:16] if len(start) > 16 else None
-        end = ev.get("end_date", "")
-        end_time = end[11:16] if len(end) > 16 else None
-
-        return TrainingEvent(
-            club=self.name,
-            club_id=self.club_id,
-            title=title,
-            date=date_str,
-            start_time=start_time,
-            end_time=end_time,
-            location="Eneby, Nynäshamn",
-            discipline=self.classify_discipline(title),
-            event_type=self.classify_event_type(title),
-            url=ev.get("url", self.BASE_URL),
-            latitude=self.config["location"]["lat"],
-            longitude=self.config["location"]["lng"],
-        )
-
-    def _scrape_calendar_page(self) -> list[TrainingEvent]:
-        """Parsa kalendersidan."""
+    def _scrape_calendar_jsonld(self) -> list[TrainingEvent]:
+        """Extrahera events från schema.org JSON-LD."""
         try:
-            resp = requests.get(f"{self.BASE_URL}/kalender/", timeout=10,
+            resp = requests.get(f"{self.BASE_URL}/kalender/", timeout=15,
                                 headers={"User-Agent": "MX-Enduro-Kalender/1.0"})
             resp.raise_for_status()
         except requests.RequestException as e:
-            self.logger.debug(f"Nynäshamn kalender: {e}")
+            self.logger.warning(f"Nynäshamn kalender: {e}")
             return []
 
         soup = BeautifulSoup(resp.text, "lxml")
         events = []
 
-        # Sök efter event-element
-        for el in soup.select(".tribe-events-calendar-list__event, .type-tribe_events, [class*='event']"):
-            title_el = el.find(["h2", "h3", "a"])
-            if not title_el:
+        # Parsa JSON-LD schema.org Event-objekt
+        for script in soup.find_all("script", type="application/ld+json"):
+            try:
+                data = json.loads(script.string)
+                if data.get("@type") == "Event":
+                    event = self._parse_jsonld_event(data)
+                    if event:
+                        events.append(event)
+            except (json.JSONDecodeError, AttributeError):
                 continue
-            title = title_el.get_text(strip=True)
-            date_el = el.find("time") or el.find(attrs={"datetime": True})
-            if date_el:
-                date_str = (date_el.get("datetime") or date_el.get_text(strip=True))[:10]
-            else:
+
+        # Parsa även HTML-events (MEC renderar events i artiklar)
+        if not events:
+            events = self._parse_mec_html(soup)
+
+        return events
+
+    def _parse_jsonld_event(self, data: dict) -> TrainingEvent | None:
+        """Parsa ett schema.org Event."""
+        name = data.get("name", "")
+        start = data.get("startDate", "")
+        end = data.get("endDate", "")
+
+        if not start or not name:
+            return None
+
+        # startDate kan vara "2026-03-28T10:00:00+01:00"
+        date_str = start[:10]
+        start_time = start[11:16] if len(start) > 16 else None
+        end_time = end[11:16] if len(end) > 16 else None
+
+        location = data.get("location", {})
+        loc_name = location.get("name", "Eneby, Nynäshamn") if isinstance(location, dict) else "Eneby, Nynäshamn"
+
+        description = data.get("description", "")[:200]
+
+        return TrainingEvent(
+            club=self.name,
+            club_id=self.club_id,
+            title=name,
+            date=date_str,
+            start_time=start_time if start_time and start_time != "00:00" else None,
+            end_time=end_time if end_time and end_time != "00:00" else None,
+            location=loc_name,
+            description=description,
+            discipline=self.classify_discipline(name),
+            event_type=self.classify_event_type(name),
+            url=data.get("url", f"{self.BASE_URL}/kalender/"),
+            latitude=self.config["location"]["lat"],
+            longitude=self.config["location"]["lng"],
+        )
+
+    def _parse_mec_html(self, soup) -> list[TrainingEvent]:
+        """Parsa MEC-events från HTML."""
+        events = []
+
+        # MEC renderar events som artiklar med datum och titel
+        for article in soup.select("article, .mec-event-article, .event-item, .mec-calendar-event"):
+            text = article.get_text(strip=True)
+
+            # Extrahera datum: "2026-03-28"
+            date_match = re.search(r"(\d{4}-\d{2}-\d{2})", text)
+            if not date_match:
                 continue
+
+            date_str = date_match.group(1)
+
+            # Extrahera tid: "10:00 - 14:00"
+            time_match = re.search(r"(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})", text)
+            start_time = end_time = None
+            if time_match:
+                start_time = f"{int(time_match.group(1)):02d}:{int(time_match.group(2)):02d}"
+                end_time = f"{int(time_match.group(3)):02d}:{int(time_match.group(4)):02d}"
+
+            # Extrahera titel (ta bort datum och tid)
+            title = re.sub(r"\d{4}-\d{2}-\d{2}", "", text)
+            title = re.sub(r"\d{1,2}:\d{2}\s*[-–]\s*\d{1,2}:\d{2}", "", title)
+            title = title.strip()[:100]
+
+            if not title or len(title) < 3:
+                title = "Cross/Enduro öppet"
 
             events.append(TrainingEvent(
                 club=self.name,
                 club_id=self.club_id,
                 title=title,
                 date=date_str,
+                start_time=start_time,
+                end_time=end_time,
                 location="Eneby, Nynäshamn",
                 discipline=self.classify_discipline(title),
                 event_type=self.classify_event_type(title),
-                url=self.BASE_URL,
+                url=f"{self.BASE_URL}/kalender/",
                 latitude=self.config["location"]["lat"],
                 longitude=self.config["location"]["lng"],
             ))
 
-        self.logger.info(f"Nynäshamn kalender: {len(events)} events")
         return events
 
-    def _scrape_activities(self) -> list[TrainingEvent]:
-        """Parsa aktiviteter-sidan."""
+    def _scrape_calendar_html(self) -> list[TrainingEvent]:
+        """Fallback: parsa hela kalendersidan."""
         try:
-            resp = requests.get(f"{self.BASE_URL}/aktiviteter/", timeout=10,
+            resp = requests.get(f"{self.BASE_URL}/kalender/", timeout=15,
                                 headers={"User-Agent": "MX-Enduro-Kalender/1.0"})
             resp.raise_for_status()
         except requests.RequestException:
             return []
 
         soup = BeautifulSoup(resp.text, "lxml")
-        events = []
-
-        for link in soup.find_all("a", href=True):
-            href = link["href"]
-            if "/aktiviteter/" in href and "cross" in href.lower() or "enduro" in href.lower():
-                title = link.get_text(strip=True)
-                # Försök extrahera datum
-                date_match = re.search(r"(\d{4}-\d{2}-\d{2})", href + title)
-                if date_match:
-                    events.append(TrainingEvent(
-                        club=self.name,
-                        club_id=self.club_id,
-                        title=title or "Cross/Enduro öppet",
-                        date=date_match.group(1),
-                        location="Eneby, Nynäshamn",
-                        discipline=self.classify_discipline(title),
-                        event_type="training",
-                        url=f"{self.BASE_URL}{href}" if not href.startswith("http") else href,
-                        latitude=self.config["location"]["lat"],
-                        longitude=self.config["location"]["lng"],
-                    ))
-
-        self.logger.info(f"Nynäshamn aktiviteter: {len(events)} events")
-        return events
+        return self._parse_mec_html(soup)

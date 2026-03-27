@@ -20,6 +20,8 @@ from scrapers.nynashamn_scraper import NynashamnScraper
 from scrapers.haninge_scraper import HaningeScraper
 from scrapers.svenskalag_scraper import SvenskaLagScraper
 from scrapers.amf_scraper import AmfScraper
+from scrapers.malaro_scraper import MalaroScraper
+from scrapers.taby_scraper import TabyScraper
 
 logging.basicConfig(
     level=logging.INFO,
@@ -97,6 +99,24 @@ def run_scrapers() -> list[dict]:
         logger.info(f"AMF: {len(events)} events")
     except Exception as e:
         logger.error(f"AMF scraper misslyckades: {e}")
+
+    # Mälarö MCK (KlubbenOnline / Next.js)
+    try:
+        scraper = MalaroScraper("malaro_mck", CLUBS["malaro_mck"])
+        events = scraper.scrape()
+        all_events.extend(e.to_dict() for e in events)
+        logger.info(f"Mälarö: {len(events)} events")
+    except Exception as e:
+        logger.error(f"Mälarö scraper misslyckades: {e}")
+
+    # Täby MK (GoBraap/hemsida)
+    try:
+        scraper = TabyScraper("taby_mk", CLUBS["taby_mk"])
+        events = scraper.scrape()
+        all_events.extend(e.to_dict() for e in events)
+        logger.info(f"Täby: {len(events)} events")
+    except Exception as e:
+        logger.error(f"Täby scraper misslyckades: {e}")
 
     return all_events
 
