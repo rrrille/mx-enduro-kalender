@@ -294,6 +294,111 @@
         .track-orange { border-color: #f97316; }
         .track-red { border-color: #ef4444; }
 
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 20px;
+            border-bottom: 2px solid var(--border);
+        }
+        .tab-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            padding: 12px 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.15s;
+        }
+        .tab-btn:hover { color: var(--text); }
+        .tab-btn.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Club cards */
+        .club-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 12px;
+        }
+        .club-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+            transition: border-color 0.15s;
+        }
+        .club-card:hover { border-color: var(--accent); }
+        .club-card h3 {
+            font-size: 0.95rem;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .club-card .club-location {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        .club-card .club-desc {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+            line-height: 1.5;
+        }
+        .club-card .club-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .club-card .club-links a {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 5px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-decoration: none;
+            border: 1px solid var(--border);
+            color: var(--text);
+            transition: all 0.15s;
+        }
+        .club-card .club-links a:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .club-card .club-links a.primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+        .club-card .club-links a.primary:hover {
+            background: var(--accent-hover);
+        }
+        .club-badge {
+            font-size: 0.65rem;
+            padding: 1px 6px;
+            border-radius: 3px;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+        }
+        .badge-active { background: #064e3b; color: #6ee7b7; }
+        .badge-manual { background: #422006; color: #fdba74; }
+        .club-booking {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+        }
+
         /* Empty state */
         .empty-state {
             text-align: center;
@@ -336,6 +441,51 @@
     </header>
 
     <main class="container">
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('calendar')">Kalender</button>
+            <button class="tab-btn" onclick="switchTab('clubs')">Banor &amp; Klubbar</button>
+        </div>
+
+        <!-- TAB: Klubbar & Banor -->
+        <div id="tab-clubs" class="tab-content">
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 16px;">
+                Alla MX- och enduroklubbar i Stockholmsomr&aring;det. Klicka p&aring; kalenderl&auml;nken f&ouml;r att se aktuella &ouml;ppettider.
+            </p>
+            <div class="club-grid">
+                {% for cid, c in club_configs.items() %}
+                <div class="club-card">
+                    <h3>
+                        {{ c.name }}
+                        {% set event_count = events | selectattr('club_id', 'equalto', cid) | list | length %}
+                        {% if event_count > 0 %}
+                            <span class="club-badge badge-active">{{ event_count }} pass</span>
+                        {% else %}
+                            <span class="club-badge badge-manual">manuell</span>
+                        {% endif %}
+                    </h3>
+                    <div class="club-location">&#x1F4CD; {{ c.get('location_name', '') }} &mdash; {{ c.discipline | join(', ') | upper }}</div>
+                    {% if c.get('description') %}
+                    <div class="club-desc">{{ c.description }}</div>
+                    {% endif %}
+                    <div class="club-links">
+                        {% if c.get('calendar_url') %}
+                        <a href="{{ c.calendar_url }}" target="_blank" class="primary">&#x1F4C5; Kalender / &Ouml;ppettider</a>
+                        {% endif %}
+                        {% if c.get('website') and c.get('website') != c.get('calendar_url') %}
+                        <a href="{{ c.website }}" target="_blank">&#x1F310; Hemsida</a>
+                        {% endif %}
+                    </div>
+                    {% if c.get('booking_info') %}
+                    <div class="club-booking">{{ c.booking_info }}</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- TAB: Kalender -->
+        <div id="tab-calendar" class="tab-content active">
         <!-- Filter -->
         <div class="filters">
             <div class="filter-group">
@@ -465,6 +615,7 @@
         <div id="map-view">
             <div id="map"></div>
         </div>
+        </div><!-- /tab-calendar -->
     </main>
 
     <footer>
@@ -584,6 +735,14 @@
 
                 marker.bindPopup(popupHtml, { maxWidth: 280 });
             });
+        }
+
+        // Tab-v&auml;xling
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('tab-' + tab).classList.add('active');
+            event.target.classList.add('active');
         }
 
         // Vy-v&auml;xling

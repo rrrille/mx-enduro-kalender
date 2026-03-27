@@ -11,7 +11,7 @@ import requests
 from jinja2 import Environment, FileSystemLoader
 from icalendar import Calendar, Event as ICalEvent
 
-from config import CLUBS, SMHI_FORECAST_URL, OUTPUT_DIR, DATA_FILE
+from config import CLUBS, SMHI_FORECAST_URL, OUTPUT_DIR, DATA_FILE, EXCLUDED_KEYWORDS, REQUIRED_KEYWORDS
 from scrapers.base import TrainingEvent
 from scrapers.rcmc_scraper import RcmcScraper
 from scrapers.fmck_scraper import FmckScraper
@@ -287,6 +287,34 @@ def main():
     today = datetime.now().strftime("%Y-%m-%d")
     events = [e for e in events if e.get("date", "") >= today]
     logger.info(f"Efter datumfilter: {len(events)} kommande events")
+
+    # Filtrera bort icke-MC events (folkrace, snöskoter, årsmöte etc.)
+    def is_relevant_event(ev):
+        title_lower = ((ev.get("title") or "") + " " + (ev.get("description") or "")).lower()
+
+        # Exkludera om titeln innehåller förbjudna ord
+        for keyword in EXCLUDED_KEYWORDS:
+            if keyword in title_lower:
+                logger.debug(f"Exkluderar (blocked keyword '{keyword}'): {ev.get('title', '')[:60]}")
+                return False
+
+        # FMCK-events med "Enduro" i titeln är alltid relevanta
+        if ev.get("club_id") == "fmck_stockholm":
+            return True
+
+        # Kräv att minst ett relevant nyckelord finns
+        has_required = any(kw in title_lower for kw in REQUIRED_KEYWORDS)
+        if not has_required:
+            logger.debug(f"Exkluderar (no required keyword): {ev.get('title', '')[:60]}")
+            return False
+
+        return True
+
+    before_filter = len(events)
+    events = [e for e in events if is_relevant_event(e)]
+    removed = before_filter - len(events)
+    if removed:
+        logger.info(f"Efter relevansfilter: {len(events)} events (tog bort {removed} icke-MC events)")
 
     # 2. Berika med väder
     events = enrich_with_weather(events)
