@@ -1,0 +1,12 @@
+[build]
+  publish = "output"
+  command = "pip install -r requirements.txt && python main.py"
+
+[build.environment]
+  PYTHON_VERSION = "3.12"
+
+[[headers]]
+  for = "/calendar.ics"
+  [headers.values]
+    Content-Type = "text/calendar; charset=utf-8"
+    Access-Control-Allow-Origin = "*"
