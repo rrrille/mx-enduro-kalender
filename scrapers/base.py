@@ -55,7 +55,16 @@ class BaseScraper:
     def classify_discipline(self, title: str) -> str:
         """Gissa disciplin baserat på titel."""
         title_lower = title.lower()
-        if "cross" in title_lower or " mx" in title_lower:
+
+        # "Ej cross" / "inte cross" / "ej mx" = enduro, inte MX
+        import re
+        has_cross = "cross" in title_lower or bool(re.search(r'\bmx\b', title_lower)) or "motocross" in title_lower
+        negated = any(neg in title_lower for neg in ["ej cross", "ej mx", "inte cross", "inte mx", "ingen cross"])
+
+        if has_cross and not negated:
+            # Om titeln också nämner enduro, kolla vilken som dominerar
+            if "enduro" in title_lower:
+                return "enduro"
             return "mx"
         if "trial" in title_lower:
             return "trial"
