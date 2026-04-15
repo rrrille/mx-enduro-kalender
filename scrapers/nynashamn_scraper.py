@@ -61,6 +61,24 @@ class NynashamnScraper(BaseScraper):
 
         return events
 
+    def _fetch_event_time(self, url: str) -> tuple[str | None, str | None]:
+        """Hämta start/sluttid från en individuell eventsida."""
+        try:
+            resp = requests.get(url, timeout=10,
+                                headers={"User-Agent": "MX-Enduro-Kalender/1.0"})
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "lxml")
+
+            # MEC visar tid i .mec-single-event-time: "Tid17:00 - 20:00"
+            time_el = soup.select_one(".mec-single-event-time, .mec-event-meta")
+            if time_el:
+                time_match = re.search(r"(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})", time_el.get_text())
+                if time_match:
+                    return time_match.group(1), time_match.group(2)
+        except requests.RequestException as e:
+            self.logger.debug(f"Kunde inte hämta tid från {url}: {e}")
+        return None, None
+
     def _parse_jsonld_event(self, data: dict) -> TrainingEvent | None:
         """Parsa ett schema.org Event."""
         name = data.get("name", "")
@@ -70,10 +88,16 @@ class NynashamnScraper(BaseScraper):
         if not start or not name:
             return None
 
-        # startDate kan vara "2026-03-28T10:00:00+01:00"
+        # startDate kan vara "2026-03-28T10:00:00+01:00" eller bara "2026-03-28"
         date_str = start[:10]
         start_time = start[11:16] if len(start) > 16 else None
         end_time = end[11:16] if len(end) > 16 else None
+
+        # Om tid saknas i JSON-LD, hämta från eventsidan
+        event_url = data.get("url", f"{self.BASE_URL}/kalender/")
+        if (not start_time or start_time == "00:00") and event_url:
+            self.logger.debug(f"Hämtar tid från {event_url}")
+            start_time, end_time = self._fetch_event_time(event_url)
 
         location = data.get("location", {})
         loc_name = location.get("name", "Eneby, Nynäshamn") if isinstance(location, dict) else "Eneby, Nynäshamn"
@@ -91,7 +115,7 @@ class NynashamnScraper(BaseScraper):
             description=description,
             discipline=self.classify_discipline(name),
             event_type=self.classify_event_type(name),
-            url=data.get("url", f"{self.BASE_URL}/kalender/"),
+            url=event_url,
             latitude=self.config["location"]["lat"],
             longitude=self.config["location"]["lng"],
         )
